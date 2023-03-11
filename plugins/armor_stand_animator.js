@@ -295,8 +295,8 @@ function generatePackFromAnimation(animationContents, animationName, configData,
             });
 
             exportAnimationAction = new Action("export_animation", {
-                name: "Export Armor Stand Animation",
-                description: "Exports the animation to a data pack",
+                name: "Export Armor Stand Animation (Modified)",
+                description: "Exports the animation to a dsc file",
                 icon: "file_download",
                 click: function() {
                     let startTime = new Date();
