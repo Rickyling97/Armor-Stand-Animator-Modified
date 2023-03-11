@@ -46,7 +46,9 @@ window.SNBT = (function () {
 function roundKeyframeTime(time) {
     return Number((Math.ceil(time.toFixed(2) / 0.05) * 0.05).toFixed(2));
 }
-
+function degreesToRadians(degrees) {
+    return +(degrees * Math.PI / 180).toFixed(4);
+  }
 function getNextKey(dict, currentKey) {
     let keys = Object.keys(dict);
     return keys[keys.indexOf(String(currentKey)) + 1];
@@ -64,71 +66,18 @@ function getRootBoneNameDifferentiator(boneName, numberCheck) {
     }
 }
 
-function generatePackFromAnimation(animationContents, animationName, configData, loopMode) {
-    let zip = new JSZip();
+function generatePackFromAnimation(animationContents, animationName, configData, time) {
+    let text = "";
 
     // Load in config data and filter invalid characters
-    let packName = configData.packName.replace(/[^a-z0-9_.]/g, "");
     animationName = animationName.replace(/[^a-zA-Z0-9_.]/g, '_');
 
-    let timerObjectiveName = `${animationName}.timer`;
-    let isPausedObjectiveName = `${animationName}.is_paused`;
 
-
-    // Set the working DIR depending on whether or not we're generating a pack namespace or a full pack
-    let workingDir;
-    if (configData.generationMode === "namespace") {
-        workingDir = `${packName}/functions`;
-    } else if (configData.generationMode === "data_pack") {
-        // Generate the extra files needed for it to be a pack
-        zip.file(`pack.mcmeta`, 
-            `{
-                "pack": {
-                    "pack_format": 7,
-                    "description": "Armor Stand Animation: ${packName}"
-                }
-            }`
-        );
-
-        zip.file(`data/minecraft/tags/functions/load.json`,
-            `{
-                "values": [
-                    "${packName}:init"
-                ]
-            }`
-        );
-
-        workingDir = `data/${packName}/functions`;
-    }
-
-    // If playback control is enabled (pause/play), generate each function
-    if (configData.playbackControl) { 
-        // Just invert the timer score and mark it as paused
-        zip.file(`${workingDir}/pause.mcfunction`, `scoreboard players operation @s ${timerObjectiveName} *= #-1 ${isPausedObjectiveName}\nscoreboard players set @s ${isPausedObjectiveName} 1`);
-
-        // Re-invert the timer score, and begin the search at the correct frame
-        resumeCommands = `scoreboard players operation @s ${timerObjectiveName} *= #-1 ${isPausedObjectiveName}`;
-        Object.keys(animationContents).slice().reverse().forEach(
-            item => resumeCommands += `\nexecute if score @s ${isPausedObjectiveName} matches 1 if score @s ${timerObjectiveName} matches ${item} run function ${packName}:search/${item}`
-        );
-
-        zip.file(`${workingDir}/resume.mcfunction`, resumeCommands); 
-    }
-
-    // Stop the animation by setting it into an invalid frame number
-    zip.file(`${workingDir}/stop.mcfunction`, `scoreboard players set @s ${timerObjectiveName} -2147483646`);
-
-    // Add the necessary timer objective, plus is paused objective and -1 constant if playback control is enabled
-    initCommands = `scoreboard objectives add ${timerObjectiveName} dummy`;
-    if (configData.playbackControl) { initCommands += `\nscoreboard players set #-1 ${isPausedObjectiveName} -1\nscoreboard objectives add ${isPausedObjectiveName} dummy`; }
-    zip.file(`${workingDir}/init.mcfunction`, initCommands);
-    
-    // Armor stand creation function
-    zip.file(`${workingDir}/create.mcfunction`, `summon minecraft:armor_stand ~ ~ ~ {Tags:["${configData.entityTag}"], NoBasePlate:1b, ShowArms:1b, Pose:{LeftArm:[0f, 0f, 0f], RightArm:[0f, 0f, 0f], LeftLeg:[0f, 0f, 0f], RightLeg:[0f, 0f, 0f]}}`);
-    
     // This is needed since we need to create the start function if this is the first frame, and it can't be hardcoded since the start frame doesn't have to be frame 1
-    let isFirstFrame = true;
-
+    text += "  " + animationName + ":\n";
+    text += "    interpolate: true\n";
+    text += "    length: " + time+"\n";
+    text += "    frames:\n";
     // Iterate through each keyframe in the data
     for ([keyframeTime, keyframeContents] of Object.entries(animationContents)) {
         // Used to calculate how long we should wait
@@ -136,85 +85,66 @@ function generatePackFromAnimation(animationContents, animationName, configData,
         let differenceBetweenNextAndCurrentKeyframe = Number(nextKeyframeTime) - Number(keyframeTime);
 
         // Generate commands for this keyframe
-        let commands = [];
+
         // Set to true if the armor stand moves that frame. Marks if we need to include "at @s" in the execute command
         let includePositionalContext = false;
         if ("pos" in keyframeContents) {
             includePositionalContext = true;
-            commands.push(`teleport @s ~${keyframeContents.pos.map(q => q * configData.blockUnitScale).join(" ~")}`);
+            // text.push(`teleport @s ~${keyframeContents.pos.map(q => q * configData.blockUnitScale).join(" ~")}`);
         }
         if ("rot" in keyframeContents) {
-            let outputNbt = {};
+            let outputNbt = "";
             let boneNameToKey = {
-                head: "Head",
-                leftArm: "LeftArm",
-                rightArm: "RightArm",
-                body: "Body",
-                leftLeg: "LeftLeg",
-                rightLeg: "RightLeg"
+                head: "head",
+                leftArm: "left_arm",
+                rightArm: "right_arm",
+                body: "body",
+                leftLeg: "left_leg",
+                rightLeg: "right_leg"
             };
+            let first = true;
             // For every limb and its rotation, generate the NBT
-            for ([boneName, boneRotation] of Object.entries(keyframeContents.rot)) {
+            for (const [index, [boneName, boneRotation]] of Object.entries(keyframeContents.rot).entries()) {
                 if (boneName !== "main") {
-                    outputNbt.Pose ??= {type: "compound", value: {}};
-                    outputNbt.Pose.value[boneNameToKey[boneName]] = {type: "floatList", value: boneRotation};
-                } else {
-                    outputNbt.Rotation = {type: "floatList", value: boneRotation};
-                }
+
+                    if (index > 0) outputNbt += '\n';
+                    outputNbt += `        ${boneNameToKey[boneName]}: ${boneRotation}`;
+  
+                    
+                } 
+                // else {
+                //     outputNbt.Rotation = {type: "floatList", value: boneRotation};
+                // }
 
             }
-            commands.push(`data merge entity @s ${window.SNBT.stringify("compound", outputNbt)}`);
+            text += `      ${keyframeTime}:\n${outputNbt}\n`;
         }
 
         // Make sure there are some commands to add
-        if (commands.length === 0) { continue; }
+        if (text == "") { continue; }
 
-        // Create the start function
-        if (isFirstFrame) {
-            zip.file(`${workingDir}/start.mcfunction`, `data merge entity @s {Pose:{Head:[0f, 0f, 0f], LeftArm:[0f, 0f, 0f], RightArm:[0f, 0f, 0f], LeftLeg:[0f, 0f, 0f], RightLeg:[0f, 0f, 0f]}}\nscoreboard players set @s ${timerObjectiveName} ${keyframeTime}\nschedule function ${packName}:search/${keyframeTime} ${differenceBetweenNextAndCurrentKeyframe}t append`);
-            isFirstFrame = false;
-        }
 
-        // Generates the functions needed for each frame (2 functions per frame, scheduling each other)
-        searchCommands = `execute as @e[tag=${configData.entityTag},scores={${timerObjectiveName}=${keyframeTime}}]${includePositionalContext ? " at @s" : ""} run function ${packName}:frames/${keyframeTime}`;
-        if (configData.playbackControl) { searchCommands += `\nscoreboard players set @s ${isPausedObjectiveName} 0`; }
-        zip.file(`${workingDir}/search/${keyframeTime}.mcfunction`, searchCommands);
-        
-        // This check is needed because otherwise the last frame will have something like "scoreboard players set ....timer undefined " and "schedule function ... NaNt append". It also lets us add the loop code.
-        if (nextKeyframeTime) {
-            zip.file(`${workingDir}/frames/${keyframeTime}.mcfunction`, `${commands.join("\n")}\nscoreboard players set @s ${timerObjectiveName} ${nextKeyframeTime}\nschedule function ${packName}:search/${nextKeyframeTime} ${differenceBetweenNextAndCurrentKeyframe}t append`);
-        } else {
-            let extraCommands = [];
-            if (loopMode === "loop") {
-                extraCommands.push(`scoreboard players set @s ${timerObjectiveName} -2147483648`, `schedule function ${packName}:delay_for_loop 1t`);
-                zip.file(`${workingDir}/delay_for_loop.mcfunction`, `scoreboard players set @e[tag=${configData.entityTag},scores={${timerObjectiveName}=-2147483648}] instrument1.timer 0\nfunction ${packName}:search/0`);
-            }
-            // "once" and "hold" loop modes are ignored since the animation stops on its own
-            zip.file(`${workingDir}/frames/${keyframeTime}.mcfunction`, `${commands.join("\n")}\n${extraCommands.join("\n")}`);
-        }
     }
-    
+
     // Export the completed data pack
-    zip.generateAsync({type: "blob"}).then(content => {
-        Blockbench.export({
-            startpath: Project.export_path,
-            type: "Zip Archive",
-            extensions: ["zip"],
-            name: animationName,
-            content: content,
-            savetype: "zip"
-        });
+    Blockbench.export({
+        startpath: Project.export_path,
+        type: "Denizen Script",
+        extensions: ["dsc"],
+        name: animationName,
+        content: text,
+        savetype: "dsc"
     });
 }
 
 (function() {
     Plugin.register("armor_stand_animator", {
-        title: "Armor Stand Animator",
-        author: "DoubleFelix",
-        description: "Provides an interface to animate armor stands which is converted to a data pack",
+        title: "Armor Stand Animator (Modified)",
+        author: "Rickyling",
+        description: "Provides an interface to animate armor stands which is converted to a .dsc file",
         tags: ["Minecraft: Java Edition"],
         icon: "fa-forward",
-        version: "1.1.0",
+        version: "1.0.0",
         variant: "both",
         onload() {
             // Both actions are globals
@@ -352,7 +282,8 @@ function generatePackFromAnimation(animationContents, animationName, configData,
     
                         // Remove the animation. prefix (it is added by blockbench by default) if it exists
                         animationName = selectedAnimation.name.startsWith("animation.") ? selectedAnimation.name.slice(10) : selectedAnimation.name;
-
+                        let animationTime = (selectedAnimation.length * selectedAnimation.snapping);
+                        animationTime = typeof animationTime === "number" ? animationTime : 0;
                         new Dialog("exportAnimationOptions", {
                             title: "Export Animation",
                             form: {
@@ -361,13 +292,8 @@ function generatePackFromAnimation(animationContents, animationName, configData,
                                 // How frames are turned into tick times. A time scale of 0.5 will make the exported animation play at half speed.
                                 timeScale: {type: "number", label: "Time Scale", value: 1, min: 0.1, max: 100, step: 0.1},
                                 // The name of the pack namespace, and the data pack folder (if generateMode is data_pack)
-                                packName: {type: "text", label: "Pack Name", value: animationName, height: 30},
-                                // The tag that the entity should have. Should be unique per animation.
-                                entityTag: {type: "text", label: "Entity Tag", value: animationName, height: 30},
-                                // Whether or not the behavior for pausing and resuming the animation should be added to the data pack
-                                playbackControl: {type: "checkbox", label: "Enable Pause/Play Control", value: true},
+                                packName: {type: "text", label: "Animation Name", value: animationName, height: 30},
                                 // Whether or not the animation should be exported as a data pack or namespace (useful for integrating into one pack)
-                                generationMode: {type: "select", label: "Generation Mode", options: {data_pack: "Complete Data Pack", namespace: "Data Pack Namespace"}}
                             },
                             onConfirm: function(formData) {
                                 // Loop through each bone and construct JSON data sorted by keyframe, then by rotation or position, then by bone
@@ -437,7 +363,10 @@ function generatePackFromAnimation(animationContents, animationName, configData,
                                             animationContent[keyframeTime] ??= {};
                                             animationContent[keyframeTime].rot ??= {};
                                             // Invert X and Z rotation since minecraft is weird
-                                            animationContent[keyframeTime].rot[boneName] = [(keyframeData.x * -1).toString(), keyframeData.y.toString(), (keyframeData.z * -1).toString()]; 
+                                            // Skip a frame if it is the default and the first frame
+                                            if (keyframeData.x == 0 && keyframeData.y == 0 && keyframeData.z == 0 && keyframeTime == 0) continue;
+                                            // Converts the degrees into radians and trims to the 4th decimal point
+                                            animationContent[keyframeTime].rot[boneName] = [degreesToRadians(keyframeData.x * -1).toString(), degreesToRadians(keyframeData.y).toString(), degreesToRadians(keyframeData.z * -1).toString()]; 
                                         }
                                     }
 
@@ -455,7 +384,7 @@ function generatePackFromAnimation(animationContents, animationName, configData,
                                 }
                                 this.hide();
 
-                                generatePackFromAnimation(animationContent, animationName, formData, selectedAnimation.loop, startTime)
+                                generatePackFromAnimation(animationContent, animationName, formData, animationTime, startTime)
                             }
                         }).show();
                     }
