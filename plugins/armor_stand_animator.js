@@ -85,12 +85,9 @@ function generatePackFromAnimation(animationContents, animationName, configData,
         let differenceBetweenNextAndCurrentKeyframe = Number(nextKeyframeTime) - Number(keyframeTime);
 
         // Generate commands for this keyframe
-
-        // Set to true if the armor stand moves that frame. Marks if we need to include "at @s" in the execute command
-        let includePositionalContext = false;
+        text += `      '${keyframeTime}':\n`;
         if ("pos" in keyframeContents) {
-            includePositionalContext = true;
-            // text.push(`teleport @s ~${keyframeContents.pos.map(q => q * configData.blockUnitScale).join(" ~")}`);
+            text += `        location: ${keyframeContents.pos.map(q => q * configData.blockUnitScale).join(",")}\n`;
         }
         if ("rot" in keyframeContents) {
             let outputNbt = "";
@@ -112,12 +109,12 @@ function generatePackFromAnimation(animationContents, animationName, configData,
   
                     
                 } 
-                // else {
-                //     outputNbt.Rotation = {type: "floatList", value: boneRotation};
-                // }
+                else {
+                    outputNbt += `        rotation: ${boneRotation}`;
+                }
 
             }
-            text += `      ${keyframeTime}:\n${outputNbt}\n`;
+            text += `${outputNbt}\n`;
         }
 
         // Make sure there are some commands to add
@@ -342,6 +339,7 @@ function generatePackFromAnimation(animationContents, animationName, configData,
                                             // If we couldn't find a previous keyframe, then set the positions to 0 so the below calculation doesn't change the current keyframe
                                             let previousKeyframe = boneObj.position[index - 1];
                                             let previousKeyframeData = previousKeyframe ? previousKeyframe.data_points[0] : {x: 0, y: 0, z: 0};
+                                            if (keyframeData.x - previousKeyframeData.x == 0 && keyframeData.y - previousKeyframeData.y == 0 && keyframeData.z - previousKeyframeData.z == 0 && keyframeTime == 0) continue;
                                             animationContent[keyframeTime].pos = [(keyframeData.x - previousKeyframeData.x).toString(), (keyframeData.y - previousKeyframeData.y).toString(), (keyframeData.z - previousKeyframeData.z).toString()]; 
                                         }
 
@@ -354,6 +352,7 @@ function generatePackFromAnimation(animationContents, animationName, configData,
                                             keyframeTime = (roundKeyframeTime(keyframe.time) + animationStartDelay) * 20 * formData.timeScale;
                                             animationContent[keyframeTime] ??= {};
                                             animationContent[keyframeTime].rot ??= {};
+                                            if (keyframeData.y == 0 && keyframeTime == 0) continue;
                                             animationContent[keyframeTime].rot.main = [keyframeData.y.toString()]; 
                                         }
                                     } else {
